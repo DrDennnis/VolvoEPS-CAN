@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "driver/twai.h"
 #include <AiEsp32RotaryEncoder.h>
+#include <Preferences.h>
 
 #define CAN_TX_PIN SCL
 #define CAN_RX_PIN SDA
@@ -13,16 +14,21 @@
 
 unsigned long previousMillis2000ms = 0;
 unsigned long previousMillis72ms = 0;
+unsigned long encoderChangedMillis = 0;
 
 const int interval2000ms = 2000;
 const int interval72ms = 72;
+const int encoderSaveDelayTime = 2000;
+
 byte keepAliveBits[4] = {0x00, 0x40, 0x80, 0xC0};
 uint8_t keepAliveCounter = 0;
+uint8_t lastEncoderPos = 0;
 
 static bool driver_installed = false;
+static bool isEncoderSaved = true;
 
 AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, -1, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
-int lastEncoderPos = 0;
+Preferences preferences;
 
 void sendCANMessage(uint32_t identifier, uint8_t data[], uint8_t data_length_code = TWAI_FRAME_MAX_DLC) {
   // configure message to transmit
@@ -33,19 +39,6 @@ void sendCANMessage(uint32_t identifier, uint8_t data[], uint8_t data_length_cod
   message.extd = 1;
 
   memcpy(message.data, data, data_length_code);
-
-#ifdef DEBUG
-  printf("ID: %s ", String(message.identifier, HEX));
-  printf("DL: %s ", String(message.data_length_code, DEC));
-  for (int i = 0; i < message.data_length_code; i ++) {
-    printf("%02x", message.data[i]);
-
-    if (i < message.data_length_code) {
-      printf(" ");
-    }
-  }
-  printf("\n");
-#endif
 
   // Queue message for transmission
   esp_err_t result = twai_transmit(&message, portMAX_DELAY);
@@ -107,6 +100,11 @@ void setup() {
   // TWAI driver is now successfully installed and started
   driver_installed = true;
 
+  // Load settings
+  preferences.begin("encoder", false);
+  lastEncoderPos = preferences.getUInt("position", 0);
+  rotaryEncoder.setEncoderValue(lastEncoderPos);
+
   Serial.println("Setup complete...");
 }
 
@@ -119,13 +117,20 @@ void loop() {
 
   unsigned long currentMillis = millis();
 
-  lastEncoderPos = rotaryEncoder.readEncoder();
-#ifdef DEBUG
-  if (rotaryEncoder.encoderChanged())	{
-    Serial.print("EncoderValue: ");
+  // Set the data in order to save the encoder position
+  if (rotaryEncoder.encoderChanged()) {
+    lastEncoderPos = rotaryEncoder.readEncoder();
+    encoderChangedMillis = currentMillis;
+    isEncoderSaved = false;
     Serial.println(lastEncoderPos);
+	}
+
+  // Save encoder position
+  if (!isEncoderSaved && (currentMillis >= encoderChangedMillis + encoderSaveDelayTime)) {
+    isEncoderSaved = true;
+    preferences.putUInt("position", lastEncoderPos);
+    Serial.println("new position saved..");
   }
-#endif
 
   if (currentMillis - previousMillis2000ms >= interval2000ms) {
     keepAliveCounter = (keepAliveCounter + 1) & 3;
@@ -134,6 +139,12 @@ void loop() {
       keepAliveBits[keepAliveCounter], 0x00, 0x22, 0xE0, 0x41, 0x90, 0x00, 0x00
     };
     sendCANMessage(0x1ae0092c, dataKeepAlive, sizeof(dataKeepAlive));
+
+    // Custom DD-CAN
+    uint8_t ddCan[] = {
+      lastEncoderPos
+    };
+    sendCANMessage(0x190, ddCan, sizeof(ddCan));
 
     previousMillis2000ms += interval2000ms;
   }
