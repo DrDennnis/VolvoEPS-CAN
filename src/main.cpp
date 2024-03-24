@@ -13,7 +13,7 @@
 #define ROTARY_ENCODER_VCC_PIN -1
 #define ROTARY_ENCODER_STEPS 4
 
-#define RELAY_OUTPUT MOSI
+#define RELAY_OUTPUT A5
 
 unsigned long previousMillis2000ms = 0;
 unsigned long previousMillis72ms = 0;
@@ -29,7 +29,7 @@ uint8_t lastEncoderPos = 0;
 
 static bool driver_installed = false;
 static bool isEncoderSaved = true;
-static bool isPowered = false;
+static bool isPowered = HIGH;
 
 AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, -1, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
 Preferences preferences;
@@ -64,6 +64,7 @@ void IRAM_ATTR readEncoderISR() {
 static void handleClick() {
   isPowered = !isPowered;
   digitalWrite(RELAY_OUTPUT, isPowered);
+
   Serial.print("BTN clicked: ");
   Serial.println(isPowered);
 }
