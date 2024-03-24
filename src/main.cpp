@@ -2,15 +2,18 @@
 #include "driver/twai.h"
 #include <AiEsp32RotaryEncoder.h>
 #include <Preferences.h>
+#include <OneButton.h>
 
 #define CAN_TX_PIN SCL
 #define CAN_RX_PIN SDA
 
-#define ROTARY_ENCODER_A_PIN A1
-#define ROTARY_ENCODER_B_PIN A0
-#define ROTARY_ENCODER_BUTTON_PIN 16
+#define ROTARY_ENCODER_A_PIN A0
+#define ROTARY_ENCODER_B_PIN A1
+#define ROTARY_ENCODER_BUTTON_PIN A2
 #define ROTARY_ENCODER_VCC_PIN -1
 #define ROTARY_ENCODER_STEPS 4
+
+#define RELAY_OUTPUT MOSI
 
 unsigned long previousMillis2000ms = 0;
 unsigned long previousMillis72ms = 0;
@@ -26,9 +29,16 @@ uint8_t lastEncoderPos = 0;
 
 static bool driver_installed = false;
 static bool isEncoderSaved = true;
+static bool isPowered = false;
 
 AiEsp32RotaryEncoder rotaryEncoder = AiEsp32RotaryEncoder(ROTARY_ENCODER_A_PIN, ROTARY_ENCODER_B_PIN, -1, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
 Preferences preferences;
+
+OneButton btn = OneButton(
+  ROTARY_ENCODER_BUTTON_PIN,  // Input pin for the button
+  true,        // Button is active LOW
+  true         // Enable internal pull-up resistor
+);
 
 void sendCANMessage(uint32_t identifier, uint8_t data[], uint8_t data_length_code = TWAI_FRAME_MAX_DLC) {
   // configure message to transmit
@@ -51,17 +61,28 @@ void IRAM_ATTR readEncoderISR() {
 	rotaryEncoder.readEncoder_ISR();
 }
 
+static void handleClick() {
+  isPowered = !isPowered;
+  digitalWrite(RELAY_OUTPUT, isPowered);
+  Serial.print("BTN clicked: ");
+  Serial.println(isPowered);
+}
+
 void setup() {
   Serial.begin(115200);
 
   pinMode(ROTARY_ENCODER_A_PIN, INPUT_PULLUP);
   pinMode(ROTARY_ENCODER_B_PIN, INPUT_PULLUP);
+ 
+  pinMode(RELAY_OUTPUT, OUTPUT);
 
   rotaryEncoder.areEncoderPinsPulldownforEsp32 = false;
   rotaryEncoder.begin();
   rotaryEncoder.setup(readEncoderISR);
   rotaryEncoder.setBoundaries(0, 20, false);
   rotaryEncoder.disableAcceleration();
+
+  btn.attachClick(handleClick);
 
   // Initialize configuration structures using macro initializers
 #ifdef DEBUG
@@ -116,6 +137,7 @@ void loop() {
   }
 
   unsigned long currentMillis = millis();
+  btn.tick();
 
   // Set the data in order to save the encoder position
   if (rotaryEncoder.encoderChanged()) {
